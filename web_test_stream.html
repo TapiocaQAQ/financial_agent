@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>RAG Agent Streaming Test</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui; max-width: 760px; margin: 32px auto; line-height: 1.6; }
+    textarea { width: 100%; height: 88px; }
+    button { padding: 8px 14px; margin-top: 8px; }
+    #out { white-space: pre-wrap; background: #f6f8fa; padding: 12px; border-radius: 8px; min-height: 120px; }
+    #meta { white-space: pre-wrap; font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+  <h2>RAG Agent（Streaming）</h2>
+  <p>輸入問題，流式顯示回答：</p>
+  <textarea id="q">VIP2 現貨 taker 手續費是多少？</textarea><br>
+  <button id="send">送出（SSE）</button>
+  <h3>回答</h3>
+  <div id="out"></div>
+  <h3>原始 JSON（除錯用）</h3>
+  <div id="meta"></div>
+
+  <script>
+    const $q = document.getElementById('q');
+    const $out = document.getElementById('out');
+    const $meta = document.getElementById('meta');
+    let es;
+
+    document.getElementById('send').onclick = () => {
+      if (es) es.close();
+      $out.textContent = '';
+      $meta.textContent = '';
+      const url = 'http://127.0.0.1:8000/stream?q=' + encodeURIComponent($q.value);
+
+      es = new EventSource(url);
+      es.onmessage = (e) => {
+        // 把 meta 訊息與正文分開
+        if (e.data.startsWith('[meta]')) {
+          $meta.textContent = e.data.slice(6);
+        } else if (e.data.startsWith('[thinking]')) {
+          $out.textContent += '（思考中…）\n';
+        } else {
+          $out.textContent += (e.data + ' ');
+        }
+      };
+      es.addEventListener('end', () => es.close());
+      es.onerror = () => {
+        $out.textContent += '\n[連線中斷或伺服器關閉]';
+        es.close();
+      };
+    };
+  </script>
+</body>
+</html>

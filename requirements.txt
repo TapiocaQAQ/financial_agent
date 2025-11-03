@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+langchain
+langgraph
+chromadb
+sentence-transformers
+rank_bm25
+unstructured
+pymupdf
+pytesseract
+redis
