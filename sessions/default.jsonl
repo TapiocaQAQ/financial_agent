@@ -1,0 +1,1 @@
+[{"role": "user", "content": "VIP2 現貨 taker 手續費是多少？"}, {"role": "assistant", "content": "工具結果: {'vip2_spot_taker_fee': 0.0009}\n依據資料：\n- fees.md\n- fees.md\n- kyc_aml_fag.md\n- kyc_aml_faq.md"}]

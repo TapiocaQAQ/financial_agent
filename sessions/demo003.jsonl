@@ -1,0 +1,1 @@
+[{"role": "user", "content": "我只想知道vip20的maker的手續費是多少"}, {"role": "assistant", "content": "工具結果: {'vip2_spot_taker_fee': 0.0009}\n依據資料：\n- fees.md\n- fees.md\n- kyc_aml_fag.md\n- kyc_aml_faq.md"}, {"role": "user", "content": "你給的檔案只有vip4 怎麼跟我亂講vip6"}, {"role": "assistant", "content": "依據資料：\n- fees.md\n- fees.md\n- api_reference.md\n- kyc_aml_fag.md"}]
