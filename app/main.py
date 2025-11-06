@@ -29,6 +29,7 @@ MAX_TURNS    = int(os.getenv("MAX_TURNS", "12"))     # 最多保留最近 12 則
 MAX_CHARS    = int(os.getenv("MAX_CHARS", "8000"))   # 最多保留 8k 字的歷史
 TRIM_STRICT  = os.getenv("TRIM_STRICT", "1") == "1"  # 嚴格修剪模式
 
+
 # ================== Session Store ==================
 class SessionStore:
     """
@@ -171,6 +172,30 @@ class SessionStore:
             "issues": issues,
             "history": hist,
         }
+    # ===== last_prompt 存取（每個 session 最新一次模型請求）=====
+    def _lp_path(self, sid: str) -> pathlib.Path:
+        safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", sid)[:80]
+        return self.dir / f"{safe}.lastprompt.json"
+
+    def set_last_prompt(self, sid: str, payload: dict) -> None:
+        payload = payload or {}
+        payload["ts"] = payload.get("ts") or time.time()
+        if self.r:
+            self.r.set(f"sess:{sid}:last_prompt", json.dumps(payload, ensure_ascii=False))
+            return
+        self._lp_path(sid).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    def get_last_prompt(self, sid: str) -> dict | None:
+        if self.r:
+            raw = self.r.get(f"sess:{sid}:last_prompt")
+            return json.loads(raw) if raw else None
+        fp = self._lp_path(sid)
+        if not fp.exists():
+            return None
+        try:
+            return json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            return None
 
 STORE = SessionStore(REDIS_URL if redis else None, SESS_DIR)
 
@@ -247,6 +272,7 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
     t0 = time.time()
     out = run_once(q, history=history or [])
     tool_summary = (out.get("tool_summary") or "").strip()
+    tools_json   = json.dumps(out.get("tool_results", {}), ensure_ascii=False)
     yield f"data: [debug] run_once:done ({time.time()-t0:.2f}s)\n\n"
 
     # 2) 準備 messages（system + history + 當前問題 + RAG）
@@ -291,6 +317,18 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
         payload = {"model": model, "messages": messages, "stream": True, "options": {"temperature": 0.2}}
         with httpx.Client(timeout=timeout, limits=limits, proxy=None, trust_env=False) as client:
             yield "data: [debug] ollama:httpx:chat:start\n\n"
+
+            # 記錄這次要送進模型的內容（chat 模式）
+            STORE.set_last_prompt(sid, {
+                "mode": "chat",
+                "model": model,
+                "system": system_prompt,
+                "messages": messages,         # 這就是 /api/chat 真正送入的 messages
+                "tool_summary": tool_summary,
+                "tools": out.get("tool_results", {}),
+                "ctx_text": ctx,
+            })
+
             got_any = False
             acc = []
             with client.stream("POST", chat_url, json=payload) as r:
@@ -314,6 +352,17 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
     def stream_generate():
         prompt = build_generate_prompt()
         payload = {"model": model, "prompt": prompt, "stream": True, "options": {"temperature": 0.2}}
+        
+        # 記錄這次要送進模型的內容（generate 模式）
+        STORE.set_last_prompt(sid, {
+            "mode": "generate",
+            "model": model,
+            "prompt": prompt,
+            "tool_summary": tool_summary,
+            "tools": out.get("tool_results", {}),
+            "ctx_text": ctx,
+        })
+        
         with httpx.Client(timeout=timeout, limits=limits, proxy=None, trust_env=False) as client:
             yield "data: [debug] ollama:httpx:generate:start\n\n"
             got_any = False
@@ -400,6 +449,35 @@ async def stream(request: Request):
         return StreamingResponse(gen_none_backend(q, history, sid), media_type="text/event-stream")
 
 # ================== 健康/診斷 ==================
+
+@app.get("/diag/last_prompt")
+def diag_last_prompt(session_id: str = Query("default"), clip: int = Query(0, ge=0, le=200000)):
+    """
+    回傳本 session 最近一次送進模型的內容。
+    - mode=chat：包含 system + messages
+    - mode=generate：包含 prompt
+    可選 clip 參數（>0 時會截斷過長欄位，避免 UI 卡頓）
+    """
+    data = STORE.get_last_prompt(session_id)
+    if not data:
+        return JSONResponse({"ok": False, "error": "no last prompt for this session"}, status_code=404)
+
+    if clip and isinstance(data, dict):
+        def _clip_text(s):
+            if isinstance(s, str) and len(s) > clip:
+                return s[:clip] + f"...(truncated {len(s)-clip} chars)"
+            return s
+        # 只對可能很長的欄位做截斷
+        for k in ("prompt", "system", "ctx_text", "tool_summary"):
+            if k in data:
+                data[k] = _clip_text(data[k])
+        if "messages" in data and isinstance(data["messages"], list):
+            for m in data["messages"]:
+                if isinstance(m, dict) and "content" in m:
+                    m["content"] = _clip_text(m["content"])
+
+    return {"ok": True, "session_id": session_id, **data}
+
 @app.get("/health")
 def health():
     try:

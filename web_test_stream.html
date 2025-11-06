@@ -5,7 +5,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>RAG Agent Streaming Test (safe)</title>
+  <title>RAG Agent Streaming Test</title>
   <style>
     body{font-family:system-ui,Segoe UI,Arial;max-width:900px;margin:24px auto;padding:0 12px}
     .row{display:flex;gap:8px;align-items:center;margin:8px 0}
@@ -29,6 +29,7 @@
     </label>
     <button id="reset" type="button" class="secondary">重置會話</button>
     <button id="seeHist" type="button" class="secondary">看歷史</button>
+    <button id="seePrompt" type="button" class="secondary">🪄 看本次 Prompt</button> <!-- 🪄 新增 -->
     <button id="clearOut" type="button" class="secondary">清空畫面</button>
     <span id="status" class="badge"></span>
   </div>
@@ -44,6 +45,10 @@
   <div class="row"><span class="badge">Meta（[meta] JSON）</span></div>
   <div id="meta" class="box meta"></div>
 
+  <!-- 🪄 額外加一個專門顯示「本次模型 Prompt」的區塊 -->
+  <div class="row"><span class="badge">🪄 Last Prompt (模型實際吃到的內容)</span></div>
+  <div id="prompt" class="box meta"></div>
+
 <script>
 (() => {
   const $base = document.getElementById('base');
@@ -51,9 +56,11 @@
   const $q    = document.getElementById('q');
   const $out  = document.getElementById('out');
   const $meta = document.getElementById('meta');
+  const $prompt = document.getElementById('prompt'); // 🪄 新增
   const $send = document.getElementById('send');
   const $reset= document.getElementById('reset');
   const $see  = document.getElementById('seeHist');
+  const $seePrompt = document.getElementById('seePrompt'); // 🪄 新增
   const $clr  = document.getElementById('clearOut');
   const $status = document.getElementById('status');
 
@@ -73,7 +80,6 @@
 
   async function postStream() {
     if (busy) {
-      // 取消上一條串流，避免互相清空與覆寫
       try { controller && controller.abort(); } catch (e) {}
     }
     busy = true;
@@ -109,7 +115,6 @@
         const {done, value} = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, {stream:true});
-
         const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() || "";
         for (const line of lines) {
@@ -125,7 +130,6 @@
           }
         }
       }
-      // 把最後殘留半行也吃掉
       if (buffer.startsWith("data:")) {
         const text = buffer.slice(5).trimStart();
         if (text && text !== "[DONE]") {
@@ -142,7 +146,6 @@
 
   $send.addEventListener('click', () => {
     if (!$q.value.trim()) { $q.focus(); return; }
-    // 不自動清畫面；要清請按「清空畫面」
     postStream();
   });
 
@@ -164,15 +167,28 @@
     $meta.textContent = JSON.stringify(js, null, 2);
   });
 
-  $clr.addEventListener('click', () => {
-    $out.textContent = "";
-    // $meta.textContent = ""; // 如果也要清 meta 就打開
+  // 🪄 新增：查看本次送進模型的 Prompt
+  $seePrompt.addEventListener('click', async () => {
+    const url = $base.value.replace(/\/$/,"") + "/diag/last_prompt?session_id=" + encodeURIComponent($sid.value) + "&clip=4000";
+    try {
+      const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
+      if (!res.ok) {
+        $prompt.textContent = `[error] ${res.status}`;
+        return;
+      }
+      const js = await res.json();
+      $prompt.textContent = JSON.stringify(js, null, 2);
+    } catch (e) {
+      $prompt.textContent = `[error] ${e}`;
+    }
   });
 
-  // Enter 送出（避免重複送出）
+  $clr.addEventListener('click', () => {
+    $out.textContent = "";
+  });
+
   $q.addEventListener('keydown', (e)=>{ if (e.key==='Enter' && !busy) $send.click(); });
 
-  // 避免外部 reload 造成輸出清空（開檔建議用 file:// 或關 Live Server auto-reload）
 })();
 </script>
 </body>
