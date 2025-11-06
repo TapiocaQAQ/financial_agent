@@ -3,12 +3,13 @@ import os, glob
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import chromadb
+from app.embeddings import EMB
 
-EMB = SentenceTransformer("BAAI/bge-m3")
+# EMB = SentenceTransformer("BAAI/bge-m3")
 
 # ✅ 使用持久化客戶端，讓不同行程共用同一套資料
 client = chromadb.PersistentClient(path="./index/chroma")
-DB = client.get_or_create_collection(name="kb_main")
+DB = client.get_or_create_collection(name="kb_main", embedding_function=EMB)
 
 def embed(texts):
     return EMB.encode(texts, normalize_embeddings=True).tolist()
