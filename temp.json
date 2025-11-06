@@ -1,0 +1,25 @@
+{
+    "query": "VIP4 現貨 maker 0.5 BTC 成本，折合台幣？",
+    "history": [],
+    "contexts": [],
+    "tool_results": {
+        "vip4_spot_maker_fee": 0.0006,
+        "market.price": {
+            "symbol": "BTCUSDT",
+            "price": 65000.0
+        },
+        "fee.lookup": {
+            "vip": 4,
+            "market": "spot",
+            "side": "maker",
+            "fee": 0.0006
+        },
+        "fx.rate": {
+            "base": "USD",
+            "quote": "TWD",
+            "rate": 32.5
+        }
+    },
+    "tool_summary": "[手續費] VIP4 spot/maker: 0.0600%（= 0.0006）\n[行情] BTCUSDT: 65000.0\n[匯率] USD/TWD: 32.5\n[vip4_spot_maker_fee] 0.0006",
+    "answer": "vip4 spot maker fee = 0.060%（亦即 0.0600%）。\n（未命中知識庫段落）\n\n[工具摘要]\n- market.price: {'symbol': 'BTCUSDT', 'price': 65000.0}\n- fee.lookup: {'vip': 4, 'market': 'spot', 'side': 'maker', 'fee': 0.0006}\n- fx.rate: {'base': 'USD', 'quote': 'TWD', 'rate': 32.5}"
+}

@@ -2,16 +2,19 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <title>RAG Agent Streaming Test</title>
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>RAG Agent Streaming Test (safe)</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;max-width:900px;margin:24px auto;padding:0 12px}
+    body{font-family:system-ui,Segoe UI,Arial;max-width:900px;margin:24px auto;padding:0 12px}
     .row{display:flex;gap:8px;align-items:center;margin:8px 0}
     input[type=text]{flex:1;padding:8px;border:1px solid #ccc;border-radius:8px}
     button{padding:8px 12px;border:1px solid #444;border-radius:8px;background:#111;color:#fff;cursor:pointer}
     button.secondary{background:#666}
-    pre{white-space:pre-wrap;border:1px solid #ddd;border-radius:8px;padding:12px;min-height:120px;background:#fafafa}
-    small{color:#666}
-    label{display:flex;gap:6px;align-items:center}
+    .box{white-space:pre-wrap;border:1px solid #ddd;border-radius:8px;padding:12px;min-height:140px;background:#fafafa;overflow:auto}
+    .meta{white-space:pre;min-height:120px}
+    .badge{font-size:12px;color:#666}
   </style>
 </head>
 <body>
@@ -24,22 +27,25 @@
     <label>Session ID:
       <input id="sid" type="text" value="demo001" style="width:180px">
     </label>
-    <button id="reset" class="secondary" title="清空該 session 的歷史">重置會話</button>
-    <button id="seeHist" class="secondary">看歷史</button>
+    <button id="reset" type="button" class="secondary">重置會話</button>
+    <button id="seeHist" type="button" class="secondary">看歷史</button>
+    <button id="clearOut" type="button" class="secondary">清空畫面</button>
+    <span id="status" class="badge"></span>
   </div>
 
   <div class="row">
     <input id="q" type="text" placeholder="輸入問題，例如：VIP2 現貨 taker 手續費是多少？">
-    <button id="send">送出</button>
+    <button id="send" type="button">送出</button>
   </div>
 
-  <div class="row"><small>Streaming output</small></div>
-  <pre id="out"></pre>
+  <div class="row"><span class="badge">Streaming output</span></div>
+  <div id="out" class="box" aria-live="polite"></div>
 
-  <div class="row"><small>Meta（[meta] JSON）</small></div>
-  <pre id="meta"></pre>
+  <div class="row"><span class="badge">Meta（[meta] JSON）</span></div>
+  <div id="meta" class="box meta"></div>
 
-  <script>
+<script>
+(() => {
   const $base = document.getElementById('base');
   const $sid  = document.getElementById('sid');
   const $q    = document.getElementById('q');
@@ -48,34 +54,49 @@
   const $send = document.getElementById('send');
   const $reset= document.getElementById('reset');
   const $see  = document.getElementById('seeHist');
+  const $clr  = document.getElementById('clearOut');
+  const $status = document.getElementById('status');
 
-  // ✅ 避免默認提交造成刷新（若你外面包了 form）
-  [$send, $reset, $see].forEach(b => b.setAttribute('type', 'button'));
+  let busy = false;
+  let controller = null;
 
-  function appendOut(text){ $out.textContent += text; $out.scrollTop = $out.scrollHeight; }
-  function clearOut(){ $out.textContent = ""; /* $meta.textContent = ""; 不自動清 meta */ }
-
-  let busy = false;  // ✅ 請求鎖，避免重複送出
+  function addChunk(text){
+    const span = document.createElement('span');
+    span.textContent = text;
+    $out.appendChild(span);
+    $out.scrollTop = $out.scrollHeight;
+  }
+  function addLine(text){
+    addChunk(text + "\n");
+  }
+  function setStatus(msg){ $status.textContent = msg || ""; }
 
   async function postStream() {
-    if (busy) return;  // 忙碌時忽略
+    if (busy) {
+      // 取消上一條串流，避免互相清空與覆寫
+      try { controller && controller.abort(); } catch (e) {}
+    }
     busy = true;
-
-    // 若你想每次都清空輸出，再把下一行打開
-    // clearOut();
+    controller = new AbortController();
+    setStatus("串流中…");
 
     const payload = { q: $q.value, session_id: $sid.value };
-    const res = await fetch($base.value.replace(/\/$/,"") + "/stream", {
-      method: "POST",
-      headers: {"Content-Type":"application/json", "Cache-Control":"no-store"},
-      body: JSON.stringify(payload)
-    }).catch(err => {
-      appendOut(`\n[error] ${err}`);
-      busy = false;
-    });
-    if (!res || !res.ok || !res.body) {
-      appendOut(`\n[error] HTTP ${res ? res.status : 'no response'}`);
-      busy = false;
+    let res;
+    try {
+      res = await fetch($base.value.replace(/\/$/,"") + "/stream", {
+        method: "POST",
+        headers: {"Content-Type":"application/json","Cache-Control":"no-store"},
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+    } catch (err) {
+      addLine(`[error] ${err}`);
+      busy = false; setStatus("");
+      return;
+    }
+    if (!res.ok || !res.body) {
+      addLine(`[error] HTTP ${res.status}`);
+      busy = false; setStatus("");
       return;
     }
 
@@ -86,12 +107,11 @@
     try {
       while (true) {
         const {done, value} = await reader.read();
-        buffer += value ? decoder.decode(value, {stream:true}) : "";
+        if (done) break;
+        buffer += decoder.decode(value, {stream:true});
 
-        // 逐行解析
-        let lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() || "";  // 暫存半行
-
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
         for (const line of lines) {
           if (!line.startsWith("data:")) continue;
           const text = line.slice(5).trimStart();
@@ -99,56 +119,61 @@
           if (text.startsWith("[meta]")) {
             $meta.textContent = text.slice(6);
           } else if (text === "[DONE]") {
-            // 結束事件，可忽略
+            // ignore
           } else {
-            appendOut(text);
+            addChunk(text);
           }
         }
-
-        if (done) break;
       }
-
-      // ✅ 流結束後，把最後殘留半行也處理掉
+      // 把最後殘留半行也吃掉
       if (buffer.startsWith("data:")) {
         const text = buffer.slice(5).trimStart();
         if (text && text !== "[DONE]") {
-          if (text.startsWith("[meta]")) {
-            $meta.textContent = text.slice(6);
-          } else {
-            appendOut(text);
-          }
+          if (text.startsWith("[meta]")) $meta.textContent = text.slice(6);
+          else addChunk(text);
         }
       }
     } catch (err) {
-      appendOut(`\n[error] ${err}`);
+      if (err.name !== "AbortError") addLine(`[error] ${err}`);
     } finally {
-      busy = false;  // ✅ 釋放鎖
+      busy = false; setStatus("");
     }
   }
 
-  $send.onclick = () => {
+  $send.addEventListener('click', () => {
     if (!$q.value.trim()) { $q.focus(); return; }
+    // 不自動清畫面；要清請按「清空畫面」
     postStream();
-  };
+  });
 
-  $reset.onclick = async () => {
-    const res = await fetch($base.value.replace(/\/$/,"") + "/session/reset", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ session_id: $sid.value })
-    });
-    appendOut(res.ok ? "\n[info] 會話已重置\n" : `\n[error] reset fail: ${res.status}\n`);
-  };
+  $reset.addEventListener('click', async () => {
+    try {
+      const res = await fetch($base.value.replace(/\/$/,"") + "/session/reset", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ session_id: $sid.value })
+      });
+      addLine(res.ok ? "[info] 會話已重置" : `[error] reset fail: ${res.status}`);
+    } catch (e) { addLine(`[error] ${e}`); }
+  });
 
-  $see.onclick = async () => {
+  $see.addEventListener('click', async () => {
     const url = $base.value.replace(/\/$/,"") + "/diag/history?session_id=" + encodeURIComponent($sid.value);
     const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
     const js = await res.json();
     $meta.textContent = JSON.stringify(js, null, 2);
-  };
+  });
 
-  // Enter 快速送出（避免重複觸發）
-  $q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !busy) $send.click(); });
+  $clr.addEventListener('click', () => {
+    $out.textContent = "";
+    // $meta.textContent = ""; // 如果也要清 meta 就打開
+  });
+
+  // Enter 送出（避免重複送出）
+  $q.addEventListener('keydown', (e)=>{ if (e.key==='Enter' && !busy) $send.click(); });
+
+  // 避免外部 reload 造成輸出清空（開檔建議用 file:// 或關 Live Server auto-reload）
+})();
 </script>
 </body>
 </html>

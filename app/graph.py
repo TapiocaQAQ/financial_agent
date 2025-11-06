@@ -31,6 +31,56 @@ def retrieve(query: str, k: int = 3) -> List[Dict]:
         out.append({"text": d, "source": meta.get("source") or meta.get("file") or "unknown"})
     return out
 
+def _summarize_tool_results(tool_results: dict) -> str:
+    """
+    把工具執行的重點輸出壓成一段可讀的摘要文字，給 LLM 當作『可用中間量』。
+    你可以依你的工具鍵名客製化重點呈現。
+    """
+    if not tool_results:
+        return "(無工具結果)"
+
+    lines = []
+    # 常見關鍵：手續費/報價/換匯/報價計算...
+    fee = tool_results.get("fee.lookup") or {}
+    if fee:
+        vip = fee.get("vip"); market = fee.get("market"); side = fee.get("side"); fr = fee.get("fee")
+        if fr is not None:
+            lines.append(f"[手續費] VIP{vip} {market}/{side}: {fr:.4%}（= {fr}）")
+
+    mkt = tool_results.get("market.price") or {}
+    if mkt:
+        sym = mkt.get("symbol"); px = mkt.get("price")
+        if px is not None:
+            lines.append(f"[行情] {sym}: {px}")
+
+    tq = tool_results.get("trade.quote") or {}
+    if tq:
+        lines.append(f"[報價] 單價 {tq.get('price')}, 數量 {tq.get('qty')}, 手續費比率 {float(tq.get('fee_ratio',0)):.4%} → 淨額 {tq.get('net')} USDT")
+
+    fx = tool_results.get("fx.rate") or {}
+    if fx:
+        lines.append(f"[匯率] {fx.get('base')}/{fx.get('quote')}: {fx.get('rate')}")
+
+    cf = tool_results.get("convert.fiat") or {}
+    if cf:
+        lines.append(f"[折算] TWD 約 {cf.get('amount_twd')}")
+
+    # 如果你還有其它工具輸出，可在此繼續追加格式化
+    # 最後兜底：把剩餘未處理的鍵也扁平成一行
+    known = {"fee.lookup", "market.price", "trade.quote", "fx.rate", "convert.fiat"}
+    for k, v in tool_results.items():
+        if k in known:
+            continue
+        try:
+            if isinstance(v, dict):
+                lines.append(f"[{k}] { {kk: vv for kk, vv in v.items() if vv is not None} }")
+            else:
+                lines.append(f"[{k}] {v}")
+        except Exception:
+            pass
+
+    return "\n".join(lines) if lines else "(無工具結果)"
+
 # ========= 舊工具（規則）— 可保留相容 =========
 FEE_TABLE_DEFAULT = {
     ("spot","maker",1): 0.0010, ("spot","taker",1): 0.0010,
@@ -146,10 +196,12 @@ def run_once(question: str, history: List[Dict]) -> Dict:
     # 4) 非串流模式下，產一段可讀回答
     answer = render_answer(question, contexts, tool_results, tctx)
 
+    tool_summary = _summarize_tool_results(tool_results or {})
     return {
         "query": question,
         "history": history,
         "contexts": contexts,
         "tool_results": tool_results,
+        "tool_summary": tool_summary,   # ⬅ 新增這行
         "answer": answer,
     }

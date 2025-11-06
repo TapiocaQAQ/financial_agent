@@ -246,6 +246,7 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
     yield "data: [debug] run_once:start\n\n"
     t0 = time.time()
     out = run_once(q, history=history or [])
+    tool_summary = (out.get("tool_summary") or "").strip()
     yield f"data: [debug] run_once:done ({time.time()-t0:.2f}s)\n\n"
 
     # 2) 準備 messages（system + history + 當前問題 + RAG）
@@ -260,7 +261,12 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
     messages = [{"role": "system", "content": system_prompt}]
     if history:
         messages.extend(history)
-    user_content = f"問題：{q}\n\n工具結果：{tools}\n可用資料片段：\n{ctx}"
+    user_content = (
+        f"問題：{q}\n\n"
+        f"工具摘要（已計算好，可直接引用）：\n{tool_summary or '(無)'}\n\n"
+        f"工具原始結果（JSON）：\n{tools}\n\n"
+        f"可用資料片段：\n{ctx}"
+    )
     messages.append({"role": "user", "content": user_content})
 
     def build_generate_prompt():
@@ -273,7 +279,8 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
             f"{system_prompt}\n\n"
             f"【前文對話】\n{convo_text}\n\n"
             f"【目前問題】\n{q}\n\n"
-            f"【工具結果】\n{tools}\n\n"
+            f"【工具摘要（可直接引用）】\n{tool_summary or '(無)'}\n\n"
+            f"【工具原始結果（JSON）】\n{tools}\n\n"
             f"【可用資料片段】\n{ctx}\n"
         )
 
