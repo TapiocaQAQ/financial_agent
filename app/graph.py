@@ -5,7 +5,6 @@ import os, re
 
 import chromadb
 
-# ✅ 工具匯流排
 from app.tools import bus, ToolContext
 from app.embeddings import EMB
 
@@ -20,7 +19,6 @@ def _get_db():
     return col
 
 def retrieve(query: str, k: int = 3) -> List[Dict]:
-    """最小檢索：回傳 [{text, source}]"""
     db = _get_db()
     rs = db.query(query_texts=[query], n_results=k)
     docs   = rs.get("documents", [[]])[0]
@@ -34,7 +32,6 @@ def retrieve(query: str, k: int = 3) -> List[Dict]:
 def _summarize_tool_results(tool_results: dict) -> str:
     """
     把工具執行的重點輸出壓成一段可讀的摘要文字，給 LLM 當作『可用中間量』。
-    你可以依你的工具鍵名客製化重點呈現。
     """
     if not tool_results:
         return "(無工具結果)"
@@ -66,7 +63,6 @@ def _summarize_tool_results(tool_results: dict) -> str:
         lines.append(f"[折算] TWD 約 {cf.get('amount_twd')}")
 
     # 如果你還有其它工具輸出，可在此繼續追加格式化
-    # 最後兜底：把剩餘未處理的鍵也扁平成一行
     known = {"fee.lookup", "market.price", "trade.quote", "fx.rate", "convert.fiat"}
     for k, v in tool_results.items():
         if k in known:
@@ -90,7 +86,7 @@ FEE_TABLE_DEFAULT = {
 }
 
 def _parse_vip_fee_rule(q: str) -> Dict:
-    """從問題裡抓 vip/maker|taker/spot|futures 的簡單規則（保留你原本的行為）"""
+    """從問題裡抓 vip/maker|taker/spot|futures 的簡單規則"""
     ql = q.lower()
     vip = None
     m = re.search(r"vip\s*([0-9]+)", ql)

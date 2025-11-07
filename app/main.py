@@ -1,8 +1,12 @@
 # app/main.py
-from fastapi import FastAPI, Body, Request, Query
+from fastapi import FastAPI, Body, Request, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.multimodal import save_upload, extract_pdf, extract_image, build_documents, UPLOAD_DIR
+from app.ingest import add_documents_to_chroma
+
+from typing import List
 import os, time, json, re, pathlib
 import httpx
 from httpx import ReadTimeout, ConnectError, HTTPStatusError
@@ -16,6 +20,7 @@ except Exception:
 from app.ingest import ingest_data
 from app.graph import run_once
 import chromadb
+
 
 # ================== 環境變數 ==================
 USE_STREAM_BACKEND = os.getenv("STREAM_BACKEND", "OLLAMA").upper()  # "NONE" or "OLLAMA"
@@ -59,7 +64,7 @@ class SessionStore:
         s = self.re_done.sub("", s)
         # 常見 streaming 重複的方括號提示已移除；刪多餘空白
         s = s.replace("\r", "")
-        # 把一堆空行收斂
+        # 刪多餘空白
         lines = [ln.strip() for ln in s.split("\n")]
         s = "\n".join([ln for ln in lines if ln != ""])
         s = self.re_ws.sub(" ", s).strip()
@@ -82,7 +87,7 @@ class SessionStore:
         if not fp.exists():
             return []
         try:
-            # 用 JSONL 也行，但這裡簡單整包 JSON
+            #包成json
             return json.loads(fp.read_text(encoding="utf-8"))
         except Exception:
             return []
@@ -137,7 +142,7 @@ class SessionStore:
                 total -= len(cleaned[0]["content"])
                 cleaned = cleaned[1:]
 
-        # 4) 簡單去重：連續兩則 assistant 一樣就刪前一則
+        # 4) 去除重副assistant response：連續兩則 assistant 一樣就刪前一則
         dedup = []
         for m in cleaned:
             if dedup and m["role"] == "assistant" and dedup[-1]["role"] == "assistant":
@@ -154,14 +159,7 @@ class SessionStore:
         joined = "\n".join(m.get("content","") for m in hist)
         if self.re_debug.search(joined) or self.re_done.search(joined):
             issues.append("history 含有未清理的 [debug]/[DONE] 片段")
-        # 檢查是否有「不要告訴我手續費」後仍連續回答費率
-        said_no_fee = any(("不要告訴我手續費" in m.get("content","")) for m in hist if m.get("role")=="user")
-        if said_no_fee:
-            fee_keywords = ("手續費", "maker", "taker", "%", "費率")
-            after_idx = max(i for i,m in enumerate(hist) if m["role"]=="user" and "不要告訴我手續費" in m["content"])
-            viol = [m for m in hist[after_idx+1:] if m["role"]=="assistant" and any(k in m["content"] for k in fee_keywords)]
-            if viol:
-                issues.append(f"使用者要求不要提費率，但後續 {len(viol)} 則回覆仍提到費用/百分比")
+
         # 回合/字數
         total_chars = sum(len(m["content"]) for m in hist)
         return {
@@ -203,7 +201,7 @@ STORE = SessionStore(REDIS_URL if redis else None, SESS_DIR)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 開發先全開；上線請改白名單
+    allow_origins=["*"],  # 開發時先預設前開
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -224,10 +222,10 @@ def ingest():
 def chat(payload: dict = Body(...)):
     q = payload.get("q", "")
     sid = payload.get("session_id", "default")
-    # 取後端歷史（已清理/修剪）
+    # 取後端歷史（cleaned）
     history = STORE.get(sid)
     out = run_once(q, history)
-    # 存歷史
+    # store history
     STORE.append(sid, "user", q)
     STORE.append(sid, "assistant", out.get("answer") or "")
     return out
@@ -255,7 +253,7 @@ def gen_none_backend(q: str, history, sid: str):
         acc.append(tok)
         time.sleep(0.02)
     final = " ".join(acc).strip()
-    # 寫回歷史
+    # write back to history
     STORE.append(sid, "user", q)
     STORE.append(sid, "assistant", final)
     yield "data: [meta] " + json.dumps(out, ensure_ascii=False) + "\n\n"
@@ -323,7 +321,7 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
                 "mode": "chat",
                 "model": model,
                 "system": system_prompt,
-                "messages": messages,         # 這就是 /api/chat 真正送入的 messages
+                "messages": messages,         # 真正送進的 messages
                 "tool_summary": tool_summary,
                 "tools": out.get("tool_results", {}),
                 "ctx_text": ctx,
@@ -390,8 +388,7 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
         for y in stream_chat():
             if isinstance(y, str):
                 yield y
-            else:
-                got, text = y  # 不會走到這裡，因為上面 yield 了；留作 safety
+
     except (ConnectError, ReadTimeout, HTTPStatusError, json.JSONDecodeError) as e:
         yield f"data: [warn] chat 串流失敗（{type(e).__name__}），改用 generate。\n\n"
         got, text = False, ""
@@ -406,10 +403,9 @@ def gen_ollama_backend(q: str, history, model: str, sid: str):
     except Exception as e:
         yield "data: [error] chat 未預期錯誤：" + f"{type(e).__name__}: {e}\n\n"
     else:
-        # 正常情況下，我們需要把最後累積的文字寫回歷史
+        # 正常情況，最後累積的文字寫回歷史
         pass
 
-    # 5) 把問題與最終回答寫回歷史（若 final_text 還是空，嘗試從 out.answer 帶）
     STORE.append(sid, "user", q)
     # final_text 可能在上面無法直接取到；為保險，在前面已逐步累積 acc並串回 text。
     # 這裡嘗試從前端看不到的情況下再補上 out.answer
@@ -448,6 +444,77 @@ async def stream(request: Request):
     else:
         return StreamingResponse(gen_none_backend(q, history, sid), media_type="text/event-stream")
 
+# ================= PDF/圖片 上傳與處理 ==================
+
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    """
+    上傳 PDF/圖片，先保存檔案，再回傳基本資訊。
+    不自動入庫，避免誤操作；請再呼叫 /ingest/uploads 或 /diag/extract。
+    """
+    bin_data = await file.read()
+    path = save_upload(file.filename, bin_data)
+    return {"ok": True, "path": path, "size": len(bin_data)}
+
+@app.get("/files")
+def list_files():
+    """列出已上傳檔案（僅檔名）"""
+    files = []
+    for name in sorted(os.listdir(UPLOAD_DIR)):
+        p = os.path.join(UPLOAD_DIR, name)
+        if os.path.isfile(p):
+            files.append({"name": name, "bytes": os.path.getsize(p)})
+    return {"ok": True, "files": files}
+
+@app.get("/diag/extract")
+def diag_extract(name: str):
+    """
+    預覽抽取結果（不入庫）：
+    GET /diag/extract?name=xxx.pdf
+    """
+    path = os.path.join(UPLOAD_DIR, name)
+    if not os.path.isfile(path):
+        return {"ok": False, "error": "file not found"}
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(name)[1].lower()
+    if ext == ".pdf":
+        docs = extract_pdf(data, filename=name)
+    elif ext in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
+        docs = extract_image(data, filename=name)
+    else:
+        return {"ok": False, "error": f"unsupported ext {ext}"}
+    preview = [{"text": d.text[:500], "metadata": d.metadata} for d in docs]  # 只預覽 500 字
+    return {"ok": True, "chunks": preview, "count": len(docs)}
+
+@app.post("/ingest/uploads")
+def ingest_uploads(names: List[str] = Body(..., embed=True)):
+    """
+    批次把 /uploads 裡指定檔案抽取並入庫：
+    POST {"names": ["a.pdf", "b.png"]}
+    """
+    total_added = 0
+    for name in names:
+        path = os.path.join(UPLOAD_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as f:
+            data = f.read()
+        ext = os.path.splitext(name)[1].lower()
+        if ext == ".pdf":
+            docs = extract_pdf(data, filename=name)
+        elif ext in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
+            docs = extract_image(data, filename=name)
+        else:
+            continue
+        ids, texts, metas = build_documents(docs)
+        if ids:
+            added = add_documents_to_chroma(ids, texts, metas)
+            total_added += added
+    return {"ok": True, "added": total_added}
+
+
+
 # ================== 健康/診斷 ==================
 
 @app.get("/diag/last_prompt")
@@ -467,7 +534,6 @@ def diag_last_prompt(session_id: str = Query("default"), clip: int = Query(0, ge
             if isinstance(s, str) and len(s) > clip:
                 return s[:clip] + f"...(truncated {len(s)-clip} chars)"
             return s
-        # 只對可能很長的欄位做截斷
         for k in ("prompt", "system", "ctx_text", "tool_summary"):
             if k in data:
                 data[k] = _clip_text(data[k])

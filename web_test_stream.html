@@ -5,20 +5,91 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>RAG Agent Streaming Test</title>
+  <title>RAG Agent Streaming & Upload</title>
   <style>
-    body{font-family:system-ui,Segoe UI,Arial;max-width:900px;margin:24px auto;padding:0 12px}
-    .row{display:flex;gap:8px;align-items:center;margin:8px 0}
-    input[type=text]{flex:1;padding:8px;border:1px solid #ccc;border-radius:8px}
-    button{padding:8px 12px;border:1px solid #444;border-radius:8px;background:#111;color:#fff;cursor:pointer}
-    button.secondary{background:#666}
-    .box{white-space:pre-wrap;border:1px solid #ddd;border-radius:8px;padding:12px;min-height:140px;background:#fafafa;overflow:auto}
-    .meta{white-space:pre;min-height:120px}
-    .badge{font-size:12px;color:#666}
+    body {
+      font-family: system-ui, Segoe UI, Arial;
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 12px;
+      overflow-x: hidden; /* 禁止水平滾動 */
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 8px 0;
+      flex-wrap: wrap;
+    }
+    input[type=text] {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    button {
+      padding: 8px 12px;
+      border: 1px solid #444;
+      border-radius: 8px;
+      background: #111;
+      color: #fff;
+      cursor: pointer;
+    }
+    button.secondary { background: #666; }
+    .box {
+      white-space: pre-wrap;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 140px;
+      max-height: 300px;  /* 固定高度 */
+      background: #fafafa;
+      overflow-y: auto;   /* 垂直滾動 */
+      overflow-x: hidden;
+      word-wrap: break-word;
+      word-break: break-word;
+    }
+    .meta {
+      white-space: pre-wrap;
+      max-height: 240px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-size: 13px;
+    }
+    .badge { font-size: 12px; color: #666; }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px; /* 右欄固定寬 */
+      gap: 16px;
+      align-items: start;
+      width: 100%;
+      max-width: 1200px;
+      overflow-x: hidden;
+    }
+    .list {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow-y: auto;
+      max-height: 220px;
+      background: #fff;
+      overflow-x: hidden;
+    }
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+      cursor: pointer;
+    }
+    .list-item:last-child { border-bottom: none; }
+    .muted { color: #777; }
   </style>
 </head>
 <body>
-  <h2>RAG Agent Streaming Test</h2>
+  <h2>RAG Agent — Streaming + Upload</h2>
 
   <div class="row">
     <label>API base:
@@ -29,25 +100,48 @@
     </label>
     <button id="reset" type="button" class="secondary">重置會話</button>
     <button id="seeHist" type="button" class="secondary">看歷史</button>
-    <button id="seePrompt" type="button" class="secondary">🪄 看本次 Prompt</button> <!-- 🪄 新增 -->
+    <button id="seePrompt" type="button" class="secondary">🪄 看本次 Prompt</button>
     <button id="clearOut" type="button" class="secondary">清空畫面</button>
     <span id="status" class="badge"></span>
   </div>
 
-  <div class="row">
-    <input id="q" type="text" placeholder="輸入問題，例如：VIP2 現貨 taker 手續費是多少？">
-    <button id="send" type="button">送出</button>
+  <div class="grid">
+    <!-- 左側：聊天串流 -->
+    <section>
+      <div class="row">
+        <input id="q" type="text" placeholder="輸入問題，例如：Level 3 的股票基金手續費是多少？">
+        <button id="send" type="button">送出</button>
+      </div>
+
+      <div class="row"><span class="badge">Streaming output</span></div>
+      <div id="out" class="box" aria-live="polite"></div>
+
+      <div class="row"><span class="badge">Meta（[meta] JSON）</span></div>
+      <div id="meta" class="box meta"></div>
+
+      <div class="row"><span class="badge">🪄 Last Prompt (模型實際吃到的內容)</span></div>
+      <div id="prompt" class="box meta"></div>
+    </section>
+
+    <!-- 右側：多模態上傳 -->
+    <aside>
+      <h3>🆙 多模態上傳（PDF / 圖片 → 抽取 → 入庫）</h3>
+      <div class="row">
+        <input id="file" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.bmp,.webp" />
+        <button id="btnUpload" type="button">上傳</button>
+      </div>
+      <div class="row">
+        <button id="btnList" class="secondary" type="button">列出已上傳</button>
+        <button id="btnPreview" class="secondary" type="button">預覽抽取</button>
+        <button id="btnIngest" class="secondary" type="button">入庫選取</button>
+      </div>
+      <div class="badge">點擊清單項目可「選取 / 取消選取」。藍底 = 已選取。</div>
+      <div id="fileList" class="list"></div>
+
+      <div class="row" style="margin-top:12px"><span class="badge">抽取預覽（前500字）</span></div>
+      <div id="preview" class="box meta"></div>
+    </aside>
   </div>
-
-  <div class="row"><span class="badge">Streaming output</span></div>
-  <div id="out" class="box" aria-live="polite"></div>
-
-  <div class="row"><span class="badge">Meta（[meta] JSON）</span></div>
-  <div id="meta" class="box meta"></div>
-
-  <!-- 🪄 額外加一個專門顯示「本次模型 Prompt」的區塊 -->
-  <div class="row"><span class="badge">🪄 Last Prompt (模型實際吃到的內容)</span></div>
-  <div id="prompt" class="box meta"></div>
 
 <script>
 (() => {
@@ -56,37 +150,109 @@
   const $q    = document.getElementById('q');
   const $out  = document.getElementById('out');
   const $meta = document.getElementById('meta');
-  const $prompt = document.getElementById('prompt'); // 🪄 新增
+  const $prompt = document.getElementById('prompt');
   const $send = document.getElementById('send');
   const $reset= document.getElementById('reset');
   const $see  = document.getElementById('seeHist');
-  const $seePrompt = document.getElementById('seePrompt'); // 🪄 新增
+  const $seePrompt = document.getElementById('seePrompt');
   const $clr  = document.getElementById('clearOut');
   const $status = document.getElementById('status');
 
+  const $file = document.getElementById('file');
+  const $btnUpload = document.getElementById('btnUpload');
+  const $btnList = document.getElementById('btnList');
+  const $btnPreview = document.getElementById('btnPreview');
+  const $btnIngest = document.getElementById('btnIngest');
+  const $fileList = document.getElementById('fileList');
+  const $preview = document.getElementById('preview');
+
   let busy = false;
   let controller = null;
+  let selected = new Set();
 
-  function addChunk(text){
-    const span = document.createElement('span');
-    span.textContent = text;
-    $out.appendChild(span);
+  /* ======== 串流：模型輸出累積成單一卡片 ======== */
+  let modelBuf = "";
+  let modelLiveEl = null;
+
+  function toHTML(text) {
+    const esc = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    return esc
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code style='background:#eee;padding:2px 4px;border-radius:4px;'>$1</code>")
+      .replace(/\n/g, "<br>");
+  }
+
+  function renderModelLive() {
+    if (!modelLiveEl) {
+      modelLiveEl = document.createElement("div");
+      modelLiveEl.style.margin = "8px 0";
+      modelLiveEl.style.padding = "8px 10px";
+      modelLiveEl.style.borderLeft = "4px solid #0070f3";
+      modelLiveEl.style.background = "#f2f9ff";
+      modelLiveEl.style.borderRadius = "6px";
+      modelLiveEl.style.lineHeight = "1.6";
+      modelLiveEl.style.fontSize = "15px";
+      $out.appendChild(modelLiveEl);
+    }
+    modelLiveEl.innerHTML = toHTML(modelBuf);
     $out.scrollTop = $out.scrollHeight;
   }
-  function addLine(text){
-    addChunk(text + "\n");
+
+  function flushModel() {
+    if (modelLiveEl) {
+      // 已定型的卡片就保留在畫面；只把指標清掉準備下一輪
+      modelLiveEl = null;
+    }
+    modelBuf = "";
   }
-  function setStatus(msg){ $status.textContent = msg || ""; }
+
+  function addChunk(text) {
+    if (text.startsWith("[meta]")) {
+      flushModel();
+      $meta.textContent = text.slice(6);
+      return;
+    }
+    if (text.startsWith("[debug]") || text.startsWith("[warn]") || text.startsWith("[error]")) {
+      flushModel();
+      const p = document.createElement("p");
+      p.textContent = text;
+      p.style.color = "#888";
+      p.style.fontSize = "13px";
+      p.style.margin = "6px 0";
+      $out.appendChild(p);
+      $out.scrollTop = $out.scrollHeight;
+      return;
+    }
+    if (text.startsWith("[thinking]")) {
+      flushModel();
+      const p = document.createElement("p");
+      p.textContent = "🤔 " + text.replace("[thinking]", "").trim();
+      p.style.color = "#0070f3";
+      p.style.fontWeight = "600";
+      p.style.margin = "6px 0";
+      $out.appendChild(p);
+      $out.scrollTop = $out.scrollHeight;
+      return;
+    }
+    if (text === "[DONE]") {
+      flushModel();
+      return;
+    }
+    // 模型真實回覆：累積並即時更新單一卡片
+    modelBuf += text;
+    renderModelLive();
+  }
 
   async function postStream() {
-    if (busy) {
-      try { controller && controller.abort(); } catch (e) {}
-    }
-    busy = true;
-    controller = new AbortController();
-    setStatus("串流中…");
+    if (busy) { try { controller && controller.abort(); } catch (e) {} }
+    busy = true; controller = new AbortController(); setStatus("串流中…");
+    flushModel(); // 新一輪開始前清前一次狀態
 
     const payload = { q: $q.value, session_id: $sid.value };
+
     let res;
     try {
       res = await fetch($base.value.replace(/\/$/,"") + "/stream", {
@@ -95,16 +261,8 @@
         body: JSON.stringify(payload),
         signal: controller.signal
       });
-    } catch (err) {
-      addLine(`[error] ${err}`);
-      busy = false; setStatus("");
-      return;
-    }
-    if (!res.ok || !res.body) {
-      addLine(`[error] HTTP ${res.status}`);
-      busy = false; setStatus("");
-      return;
-    }
+    } catch (err) { addChunk(`[error] ${err}`); busy=false; setStatus(""); return; }
+    if (!res.ok || !res.body) { addChunk(`[error] HTTP ${res.status}`); busy=false; setStatus(""); return; }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -121,74 +279,130 @@
           if (!line.startsWith("data:")) continue;
           const text = line.slice(5).trimStart();
           if (!text) continue;
-          if (text.startsWith("[meta]")) {
-            $meta.textContent = text.slice(6);
-          } else if (text === "[DONE]") {
-            // ignore
-          } else {
-            addChunk(text);
-          }
+          addChunk(text);
         }
       }
       if (buffer.startsWith("data:")) {
         const text = buffer.slice(5).trimStart();
-        if (text && text !== "[DONE]") {
-          if (text.startsWith("[meta]")) $meta.textContent = text.slice(6);
-          else addChunk(text);
-        }
+        if (text) addChunk(text);
       }
     } catch (err) {
-      if (err.name !== "AbortError") addLine(`[error] ${err}`);
+      if (err.name !== "AbortError") addChunk(`[error] ${err}`);
     } finally {
+      flushModel();            // 收尾保險
       busy = false; setStatus("");
     }
   }
 
-  $send.addEventListener('click', () => {
-    if (!$q.value.trim()) { $q.focus(); return; }
-    postStream();
-  });
+  function addLine(text){
+    const p = document.createElement('p');
+    p.textContent = text;
+    $out.appendChild(p);
+    $out.scrollTop = $out.scrollHeight;
+  }
+  function setStatus(msg){ $status.textContent = msg || ""; }
 
-  $reset.addEventListener('click', async () => {
-    try {
-      const res = await fetch($base.value.replace(/\/$/,"") + "/session/reset", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ session_id: $sid.value })
-      });
-      addLine(res.ok ? "[info] 會話已重置" : `[error] reset fail: ${res.status}`);
-    } catch (e) { addLine(`[error] ${e}`); }
-  });
-
-  $see.addEventListener('click', async () => {
+  $send.onclick = () => { if (!$q.value.trim()) { $q.focus(); return; } postStream(); };
+  $reset.onclick = async () => {
+    const res = await fetch($base.value.replace(/\/$/,"") + "/session/reset", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: $sid.value })
+    });
+    addLine(res.ok ? "[info] 會話已重置" : `[error] reset fail: ${res.status}`);
+  };
+  $see.onclick = async () => {
     const url = $base.value.replace(/\/$/,"") + "/diag/history?session_id=" + encodeURIComponent($sid.value);
     const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
     const js = await res.json();
     $meta.textContent = JSON.stringify(js, null, 2);
-  });
-
-  // 🪄 新增：查看本次送進模型的 Prompt
-  $seePrompt.addEventListener('click', async () => {
+  };
+  $seePrompt.onclick = async () => {
     const url = $base.value.replace(/\/$/,"") + "/diag/last_prompt?session_id=" + encodeURIComponent($sid.value) + "&clip=4000";
-    try {
-      const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
-      if (!res.ok) {
-        $prompt.textContent = `[error] ${res.status}`;
-        return;
-      }
-      const js = await res.json();
-      $prompt.textContent = JSON.stringify(js, null, 2);
-    } catch (e) {
-      $prompt.textContent = `[error] ${e}`;
-    }
-  });
-
-  $clr.addEventListener('click', () => {
-    $out.textContent = "";
-  });
-
+    const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
+    $prompt.textContent = res.ok ? JSON.stringify(await res.json(), null, 2) : `[error] ${res.status}`;
+  };
+  $clr.onclick = () => { $out.textContent = ""; };
   $q.addEventListener('keydown', (e)=>{ if (e.key==='Enter' && !busy) $send.click(); });
 
+  /* ======== 上傳/抽取/入庫 ======== */
+  function renderList(files){
+    $fileList.innerHTML = "";
+    selected.clear();
+    for (const f of files) {
+      const div = document.createElement("div");
+      div.className = "list-item";
+      div.dataset.name = f.name;
+      div.onclick = () => {
+        if (selected.has(f.name)) {
+          selected.delete(f.name); div.style.background = "";
+        } else {
+          selected.add(f.name); div.style.background = "#e6f0ff";
+        }
+      };
+      const left = document.createElement("div");
+      left.textContent = f.name;
+      const right = document.createElement("div");
+      right.className = "muted";
+      right.textContent = `${(f.bytes/1024).toFixed(1)} KB`;
+      div.appendChild(left); div.appendChild(right);
+      $fileList.appendChild(div);
+    }
+    if (!files.length) $fileList.innerHTML = '<div class="list-item muted">（目前沒有已上傳檔案）</div>';
+  }
+
+  async function listFiles(){
+    const url = $base.value.replace(/\/$/,"") + "/files";
+    const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
+    const js = await res.json();
+    renderList(js.files || []);
+  }
+
+  async function uploadFiles(){
+    if (!$file.files.length) { alert("請先選擇檔案"); return; }
+    for (const f of $file.files) {
+      const fd = new FormData();
+      fd.append("file", f, f.name);
+      const res = await fetch($base.value.replace(/\/$/,"") + "/upload", {
+        method: "POST",
+        body: fd
+      });
+      if (!res.ok) addLine(`[upload error] ${f.name} -> ${res.status}`);
+      else {
+        const j = await res.json();
+        addLine(`[upload ok] ${f.name} (${j.size} bytes)`);
+      }
+    }
+    await listFiles();
+  }
+
+  async function previewExtract(){
+    if (!selected.size) { alert("請先在清單選取 1 個檔案"); return; }
+    $preview.textContent = "抽取中…";
+    const name = Array.from(selected)[0];
+    const url = $base.value.replace(/\/$/,"") + "/diag/extract?name=" + encodeURIComponent(name);
+    const res = await fetch(url, {headers: {"Cache-Control":"no-store"}});
+    $preview.textContent = res.ok ? JSON.stringify(await res.json(), null, 2) : `[error] ${res.status}`;
+  }
+
+  async function ingestSelected(){
+    if (!selected.size) { alert("請先在清單選取至少 1 個檔案"); return; }
+    const names = Array.from(selected);
+    const res = await fetch($base.value.replace(/\/$/,"") + "/ingest/uploads", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ names })
+    });
+    const js = await res.json();
+    addLine(res.ok ? `[ingest ok] 新增 ${js.added} 筆 chunks` : `[ingest error] ${res.status}`);
+  }
+
+  $btnUpload.onclick = uploadFiles;
+  $btnList.onclick = listFiles;
+  $btnPreview.onclick = previewExtract;
+  $btnIngest.onclick = ingestSelected;
+
+  // 初始：列出已上傳
+  listFiles();
 })();
 </script>
 </body>

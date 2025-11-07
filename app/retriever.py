@@ -5,7 +5,7 @@ import chromadb
 EMB = SentenceTransformer("BAAI/bge-m3")
 CROSS = CrossEncoder("BAAI/bge-reranker-large")
 
-# ✅ 與 ingest.py 完全相同的持久化路徑與 collection 名稱
+# ingest.py 完全相同的持久化路徑與 collection 名稱
 client = chromadb.PersistentClient(path="./index/chroma")
 DB = client.get_collection("kb_main")
 

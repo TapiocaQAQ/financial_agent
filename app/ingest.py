@@ -6,6 +6,8 @@ import chromadb
 from chromadb.utils import embedding_functions
 from app.embeddings import EMB
 
+from typing import List, Dict, Any, Tuple
+
 # EMB = SentenceTransformer("BAAI/bge-m3")
 
 # ✅ 使用持久化客戶端，讓不同行程共用同一套資料
@@ -17,8 +19,7 @@ def embed(texts: list[str]) -> list[list[float]]:
     Chroma 的 SentenceTransformerEmbeddingFunction 是可呼叫物件，
     直接 EMB(texts) 即可；回傳可能是 list 或 numpy array，這裡統一轉成純 list。
     """
-    vecs = EMB(texts)  # ❗不要用 .encode()
-    # 統一成純 Python list[ list[float] ]
+    vecs = EMB(texts)  
     try:
         # numpy -> list
         return [list(map(float, v)) for v in vecs]
@@ -44,7 +45,23 @@ def ingest_data(data_dir="data"):
     
     print(f"Ingested {len(texts)} chunks from {data_dir}")
     print("Collections:", [c.name for c in client.list_collections()])
-    print("Count in kb_main:", DB.count())  # ✅ 應該 > 0
+    print("Count in kb_main:", DB.count())  # 應該 > 0
+
+
+def add_documents_to_chroma(ids: List[str], texts: List[str], metadatas: List[Dict[str, Any]]):
+    client = chromadb.PersistentClient(path="./index/chroma")
+    col = None
+    try:
+        col = client.get_collection("kb_main")
+    except Exception:
+        col = client.create_collection("kb_main")
+
+    col.add(
+        ids=ids,
+        documents=texts,
+        metadatas=metadatas,
+    )
+    return len(ids)
 
 if __name__ == "__main__":
     ingest_data()

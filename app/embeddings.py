@@ -10,5 +10,5 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EMB = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name=MODEL_NAME,
     device=DEVICE,
-    normalize_embeddings=True,   # bge 系列通常建議做 L2 normalize
+    normalize_embeddings=True,   
 )

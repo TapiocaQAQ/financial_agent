@@ -79,7 +79,7 @@ def resolve_inputs(ctx: ToolContext, params: Dict[str, Any]) -> Dict[str, Any]:
         return v
     return {k: _resolve(v) for k, v in params.items()}
 
-# ===== 內建工具（示例） =====
+# ===== 內建工具 =====
 bus = ToolBus()
 
 def tool(name: str, desc: str = ""):

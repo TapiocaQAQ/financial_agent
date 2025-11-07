@@ -1,1 +1,1 @@
-[{"role": "user", "content": "你好 我知道你叫白癡"}, {"role": "assistant", "content": "資料來源：api_reference.md、kyc_aml_faq.md、margin_rules.md"}]
+[{"role": "user", "content": "Level 3 的股票基金手續費是多少？"}, {"role": "assistant", "content": "資料來源：fees.md、investment_fees_92ebe51852.pdf"}, {"role": "user", "content": "算給我看"}, {"role": "assistant", "content": "資料來源：fees.md、investment_fees_92ebe51852.pdf"}]
