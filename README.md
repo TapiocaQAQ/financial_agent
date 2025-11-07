@@ -27,26 +27,17 @@
 
 ## 🏗️ 系統架構
 
-```mermaid
+```
 graph TD
-    A[使用者 Web UI]
-    B[FastAPI Server]
-    C[run_once() 檢索流程]
-    D[ChromaDB 向量搜尋]
-    E[工具層（費率查詢等）]
-    F[Ollama /api/chat 或 /api/generate]
-    G[本地 LLM 模型（llama3.2:3b, gpt-oss…）]
-    H[PDF/圖片抽取模組]
-
-    A -->|HTTP POST /stream| B;
-    B --> C;
-    C --> D;
-    C --> E;
-    B --> F;
-    F --> G;
-    G -->|串流輸出| A;
-    A -->|上傳 /upload| H;
-    H --> D;
+    A[使用者 Web UI] -->|HTTP POST /stream| B[FastAPI Server]
+    B --> C[run_once() 檢索流程]
+    C --> D[ChromaDB 向量搜尋]
+    C --> E[工具層 (如 VIP 手續費查詢)]
+    B --> F[Ollama /api/chat or /api/generate]
+    F --> G[本地 LLM 模型 (llama3.2:3b, gpt-oss...)]
+    G -->|串流輸出| A
+    A -->|上傳 /upload| H[PDF / 圖片抽取模組]
+    H --> D
 ```
 
 ---
