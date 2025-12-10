@@ -8,6 +8,14 @@
 > 支援 **多輪對話、PDF/圖片知識上傳、工具互通**，並可即時串流回覆。  
 > 專為金融、交易所客服、法規文件助理等情境設計。
 
+## 🎬 Demo — Financial Agent in Action
+
+<p align="center">
+  <img src="./source/output.gif" width="85%" alt="Demo Showcase">
+</p>
+
+
+
 ---
 
 ## 🧩 專案特色
